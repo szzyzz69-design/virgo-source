@@ -1,0 +1,5 @@
+fastapi>=0.137,<1
+nicegui>=2,<3
+psycopg[binary]>=3.2,<4
+uvicorn>=0.30,<1
+boto3>=1.34,<2

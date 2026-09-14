@@ -1,0 +1,11 @@
+private_registration_token = "replace-with-a-long-random-registration-secret"
+business_api_token = "replace-with-a-long-random-business-secret"
+device_online_window_seconds = 300
+mms_webhook_signing_key = "replace-with-android-sms-gateway-webhook-secret"
+mms_webhook_timestamp_tolerance_seconds = 300
+s3_endpoint_url = "https://s3.example.com"
+s3_region = "us-east-1"
+s3_bucket = "replace-with-mms-attachment-bucket"
+s3_access_key_id = "replace-with-s3-access-key-id"
+s3_secret_access_key = "replace-with-s3-secret-access-key"
+s3_public_base_url = "https://cdn.example.com/mms"

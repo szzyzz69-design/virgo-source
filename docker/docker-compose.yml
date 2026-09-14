@@ -1,0 +1,62 @@
+name: virgo
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: virgo-app:latest
+    restart: unless-stopped
+    # 3x capacity target: measured demand plus production headroom.
+    cpus: 2.0
+    cpu_shares: 2048
+    mem_limit: 2560m
+    mem_reservation: 1g
+    environment:
+      DATABASE_URL: postgresql://admin:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/virgo_pg
+      VIRGO_CONFIG_FILE: /app/config.toml
+    ports:
+      - "${VIRGO_HTTP_PORT:-8000}:8000"
+    volumes:
+      - ../config.toml:/app/config.toml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/openapi.json', timeout=3).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    # Keep database latency protected when other Docker workloads are busy.
+    cpus: 2.0
+    cpu_shares: 2048
+    mem_limit: 5g
+    mem_reservation: 2g
+    environment:
+      POSTGRES_DB: virgo_pg
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - "virgo_pg_data:/var/lib/postgresql/data"
+      - ../pg/init:/docker-entrypoint-initdb.d:ro
+      - ../pg/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d virgo_pg"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  virgo_pg_data:

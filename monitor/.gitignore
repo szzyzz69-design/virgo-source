@@ -13,13 +13,3 @@ htmlcov/
 dist/
 build/
 .worktrees/
-
-# Local data and credentials
-*.dump
-*.aes
-*.apk
-*.jks
-*.keystore
-*KEY-KEEP-PRIVATE*
-*.zip
-*.tar

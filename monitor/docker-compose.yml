@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: virgo-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: virgo_pg
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+    ports:
+      - "5433:5432"
+    volumes:
+      - virgo_pg_data:/var/lib/postgresql/data
+      - ./pg/init:/docker-entrypoint-initdb.d:ro
+      - ./pg/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d virgo_pg"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  virgo_pg_data:

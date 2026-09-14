@@ -1,0 +1,15 @@
+﻿services:
+  download:
+    image: nginx:alpine
+    container_name: virgo-download
+    restart: unless-stopped
+    cpus: 0.5
+    cpu_shares: 512
+    mem_limit: 512m
+    mem_reservation: 128m
+
+    ports:
+      - "127.0.0.1:8088:80"
+
+    volumes:
+      - ./html:/usr/share/nginx/html:ro
