@@ -20,6 +20,7 @@ from app.api.message import MessageCreationService, create_message_router
 from app.api.message_pull import MessagePullingService, create_message_pull_router
 from app.api.message_status import MessageStateUpdatingService, create_message_status_router
 from app.api.inbox import InboundCreatingService, create_inbox_router
+from app.api.mms_inbox import create_mms_inbox_router
 from app.config import Settings
 from app.database import Database
 from app.errors import install_error_handling
@@ -44,7 +45,7 @@ from app.services.inbound_message_service import InboundMessageService
 from app.services.inbound_publisher import InboundMessagePublisher, NoOpInboundMessagePublisher
 from app.services.mms_webhook_service import MmsWebhookService
 from app.services.sse import SseConnectionRegistry
-from app.services.object_storage import S3ObjectStorage
+from app.services.object_storage import create_s3_storage
 from pg.admin_ui import mount_admin_ui
 from app.services.sms_check_service import SmsCheckService
 from app.api.sms_checks import create_sms_checks_router
@@ -106,21 +107,9 @@ def create_app(
         sms_checks=sms_checks,
     )
     mms_service = mms_webhook_service
+    mms_storage = None
     if mms_service is None:
-        import boto3
-
-        s3_client = boto3.client(
-            "s3",
-            endpoint_url=settings.s3_endpoint_url or None,
-            region_name=settings.s3_region,
-            aws_access_key_id=settings.s3_access_key_id or None,
-            aws_secret_access_key=settings.s3_secret_access_key or None,
-        )
-        mms_storage = S3ObjectStorage(
-            client=s3_client,
-            bucket=settings.s3_bucket,
-            public_base_url=settings.s3_public_base_url,
-        )
+        mms_storage = create_s3_storage(settings)
         mms_service = MmsWebhookService(
             database,
             mms_storage,
@@ -131,6 +120,7 @@ def create_app(
     agent_conversations = agent_conversation_service or AgentConversationService(
         database,
         business_message_service,
+        attachment_storage=mms_storage,
     )
     agent_contacts = agent_contact_service or AgentContactService(database)
     app.include_router(
@@ -150,6 +140,7 @@ def create_app(
     app.include_router(create_message_pull_router(auth_service, pull_service))
     app.include_router(create_message_status_router(auth_service, state_service))
     app.include_router(create_inbox_router(auth_service, inbound_service))
+    app.include_router(create_mms_inbox_router(auth_service, mms_service))
     app.include_router(
         create_mms_webhook_router(
             mms_service,

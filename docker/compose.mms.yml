@@ -1,0 +1,40 @@
+name: virgo-mms
+
+services:
+  minio:
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    restart: unless-stopped
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Run ops/configure_local_mms.py first}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Run ops/configure_local_mms.py first}
+    ports:
+      - "${MMS_S3_BIND_ADDRESS:-0.0.0.0}:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - mms_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  init:
+    image: minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    restart: "no"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
+      MINIO_APP_USER: ${MINIO_APP_USER:?}
+      MINIO_APP_PASSWORD: ${MINIO_APP_PASSWORD:?}
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/init/init-mms-storage.sh"]
+    volumes:
+      - ../ops/init-mms-storage.sh:/init/init-mms-storage.sh:ro
+      - ../ops/mms-storage-policy.json:/init/mms-storage-policy.json:ro
+
+volumes:
+  mms_data:
+    name: virgo_mms_data

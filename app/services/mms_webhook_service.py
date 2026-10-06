@@ -263,7 +263,7 @@ class MmsWebhookService:
                     attachment.part_id,
                     attachment.content_type,
                     attachment.name,
-                    attachment.size,
+                    len(data),
                     stored.bucket,
                     stored.key,
                     stored.url,

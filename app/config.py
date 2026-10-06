@@ -18,6 +18,8 @@ class Settings:
     s3_access_key_id: str = ""
     s3_secret_access_key: str = ""
     s3_public_base_url: str = ""
+    s3_download_endpoint_url: str = ""
+    s3_addressing_style: str = "auto"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -66,6 +68,10 @@ class Settings:
                 "mms_webhook_timestamp_tolerance_seconds must be a positive integer"
             )
 
+        addressing_style = config.get("s3_addressing_style", "auto")
+        if addressing_style not in ("auto", "path", "virtual"):
+            raise RuntimeError("s3_addressing_style must be auto, path or virtual")
+
         return cls(
             database_url=database_url,
             private_registration_token=private_registration_token,
@@ -79,4 +85,6 @@ class Settings:
             s3_access_key_id=str(config.get("s3_access_key_id", "") or ""),
             s3_secret_access_key=str(config.get("s3_secret_access_key", "") or ""),
             s3_public_base_url=str(config.get("s3_public_base_url", "") or ""),
+            s3_download_endpoint_url=str(config.get("s3_download_endpoint_url", "") or ""),
+            s3_addressing_style=addressing_style,
         )
