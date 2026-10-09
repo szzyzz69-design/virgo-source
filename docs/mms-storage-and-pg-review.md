@@ -53,7 +53,8 @@ docker compose --env-file .env.mms -f docker/compose.mms.yml up -d
 
 - API 端口：`9000`，桶保持私有。
 - 管理控制台：`http://127.0.0.1:9001`，登录凭据在本机 `.env.mms`。
-- 持久化 Docker 卷：`virgo_mms_data`。备份此卷时同时保留 PG 备份和 `.env.mms`；PG 备份本身不包含图片。
+- 本机持久化目录：`D:/VirgoData/minio-live`，通过 bind mount 挂载到 MinIO `/data`。2026-10-07 已从原 `virgo_mms_data` 卷完整迁移；原卷已在验证后移除。目录必须预先存在，Compose 不会自动创建空目录代替原数据。
+- 备份时同时保留整个 MinIO 数据目录、PG 备份和 `.env.mms`；PG 备份本身不包含图片。迁移前完整冷备份位于 `D:/VirgoBackups/mms-storage-to-d-20261007/final-cold-volume.tar`，逐文件 SHA256 核对通过，包含原桶、对象和访问账号配置。
 - 应用上传 endpoint：`http://host.docker.internal:9000`。
 - 手机下载 endpoint：`s3_download_endpoint_url`。
 - `s3_public_base_url` 留空，使用带签名的私有链接。

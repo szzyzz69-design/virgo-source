@@ -12,7 +12,11 @@ services:
       - "${MMS_S3_BIND_ADDRESS:-0.0.0.0}:9000:9000"
       - "127.0.0.1:9001:9001"
     volumes:
-      - mms_data:/data
+      - type: bind
+        source: "D:/VirgoData/minio-live"
+        target: /data
+        bind:
+          create_host_path: false
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 10s
@@ -34,7 +38,3 @@ services:
     volumes:
       - ../ops/init-mms-storage.sh:/init/init-mms-storage.sh:ro
       - ../ops/mms-storage-policy.json:/init/mms-storage-policy.json:ro
-
-volumes:
-  mms_data:
-    name: virgo_mms_data

@@ -23,6 +23,7 @@ from app.services.inbound_message_service import (
 )
 from app.services.inbound_publisher import InboundMessagePublisher, NoOpInboundMessagePublisher
 from app.services.object_storage import build_mms_object_key
+from app.services.mms_media import is_complete_gif
 
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 ALLOWED_MMS_ATTACHMENT_TYPES = {
     "image/jpeg",
     "image/png",
+    "image/gif",
     "audio/amr",
     "application/octet-stream",
 }
@@ -294,6 +296,8 @@ class MmsWebhookService:
                 declared_total = next_declared_total
 
             if attachment.data is None:
+                if attachment.content_type == "image/gif":
+                    raise MmsUnsupportedMediaType
                 decoded_size = attachment.size or 0
                 if decoded_total + decoded_size > MAX_MMS_TOTAL_BYTES:
                     raise MmsPayloadTooLarge
@@ -312,6 +316,8 @@ class MmsWebhookService:
                     raise MmsPayloadTooLarge
                 if decoded_total + decoded_size > MAX_MMS_TOTAL_BYTES:
                     raise MmsPayloadTooLarge
+                if attachment.content_type == "image/gif" and not is_complete_gif(data):
+                    raise MmsUnsupportedMediaType
             decoded_total += decoded_size
 
     def _estimated_base64_decoded_size(self, data: str) -> int:
@@ -497,7 +503,7 @@ class MmsWebhookService:
             return payload.body[:255]
         if isinstance(payload, MmsDownloadedPayload) and payload.attachments:
             image_count = sum(
-                1 for attachment in payload.attachments if attachment.content_type in {"image/jpeg", "image/png"}
+                1 for attachment in payload.attachments if attachment.content_type in {"image/jpeg", "image/png", "image/gif"}
             )
             if image_count:
                 return "[MMS image]"

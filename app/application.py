@@ -18,6 +18,7 @@ from app.api.device import (
 )
 from app.api.message import MessageCreationService, create_message_router
 from app.api.message_pull import MessagePullingService, create_message_pull_router
+from app.api.message_delivery import create_message_delivery_router
 from app.api.message_status import MessageStateUpdatingService, create_message_status_router
 from app.api.inbox import InboundCreatingService, create_inbox_router
 from app.api.mms_inbox import create_mms_inbox_router
@@ -40,6 +41,7 @@ from app.services.message_publisher import (
 )
 from app.services.message_service import MessageCommandService
 from app.services.message_pull_service import MessagePullService
+from app.services.message_delivery_service import MessageDeliveryService
 from app.services.message_state_service import MessageStateService
 from app.services.inbound_message_service import InboundMessageService
 from app.services.inbound_publisher import InboundMessagePublisher, NoOpInboundMessagePublisher
@@ -67,6 +69,7 @@ def create_app(
     agent_contact_service: AgentContactQueryService | None = None,
     agent_event_registry: AgentEventsRegistry | None = None,
     mms_webhook_service: MmsHandlingService | None = None,
+    message_delivery_service: MessageDeliveryService | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Virgo SMS Gateway")
     install_error_handling(app)
@@ -99,6 +102,7 @@ def create_app(
     )
     sms_checks = SmsCheckService(database, publisher)
     pull_service = message_pull_service or MessagePullService(database, sms_checks)
+    delivery_service = message_delivery_service or MessageDeliveryService(database, sms_checks)
     state_service = message_state_service or MessageStateService(database, sms_checks)
     inbound_service = inbound_message_service or InboundMessageService(
         database,
@@ -137,7 +141,8 @@ def create_app(
         )
     )
     app.include_router(create_events_router(auth_service, registry))
-    app.include_router(create_message_pull_router(auth_service, pull_service))
+    app.include_router(create_message_pull_router(auth_service, pull_service, delivery_service))
+    app.include_router(create_message_delivery_router(auth_service, delivery_service))
     app.include_router(create_message_status_router(auth_service, state_service))
     app.include_router(create_inbox_router(auth_service, inbound_service))
     app.include_router(create_mms_inbox_router(auth_service, mms_service))

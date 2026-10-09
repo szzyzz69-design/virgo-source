@@ -48,7 +48,7 @@ class StoredObject:
 
 
 def extension_for_content_type(content_type: str) -> str:
-    return {"image/jpeg": "jpg", "image/png": "png", "audio/amr": "amr"}.get(content_type, "bin")
+    return {"image/jpeg": "jpg", "image/png": "png", "image/gif": "gif", "audio/amr": "amr"}.get(content_type, "bin")
 
 
 def _safe_key_segment(value: str, fallback: str = "unknown") -> str:

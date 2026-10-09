@@ -42,6 +42,7 @@ def test_supervisor_exposes_no_business_write_routes():
         ("GET", "/supervisor/api/conversations"),
         ("GET", "/supervisor/api/conversations/{conversation_id}"),
         ("GET", "/supervisor/api/conversations/{conversation_id}/messages"),
+        ("GET", "/supervisor/api/conversations/{conversation_id}/attachments/{attachment_id}"),
     }
 
 
@@ -60,5 +61,7 @@ def test_frontend_has_no_read_state_or_business_write_controls():
     assert "sendReply" not in source
     assert "openRemark" not in source
     assert "ez-copy" not in source
-    assert "接收时间" in source
-    assert "发送时间" in source
+    assert "renderMessageTimes(message)" in source
+    time_source = Path("supervisor/src/message-time.js").read_text(encoding="utf-8")
+    assert "接收时间" in time_source
+    assert "发送时间" in time_source

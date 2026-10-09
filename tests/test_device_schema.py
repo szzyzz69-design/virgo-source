@@ -179,3 +179,22 @@ def test_device_update_ignores_unknown_fields_and_uses_android_aliases():
     assert dumped["simCards"][0]["slotIndex"] == 0
     assert "future" not in dumped
     assert "future" not in dumped["simCards"][0]
+
+
+def test_phone_sync_requires_explicit_boolean_opt_in():
+    assert DeviceUpdateRequest(id="dev_1").sync_phone_numbers is False
+    request = DeviceUpdateRequest.model_validate({"id": "dev_1", "syncPhoneNumbers": True})
+    assert request.sync_phone_numbers is True
+    assert request.model_dump(by_alias=True)["syncPhoneNumbers"] is True
+    for value in ("true", "false", 1, 0, None):
+        with pytest.raises(ValidationError):
+            DeviceUpdateRequest.model_validate({"id": "dev_1", "syncPhoneNumbers": value})
+
+
+@pytest.mark.parametrize("value", [None, 1234567890, False, {}, []])
+def test_unavailable_phone_metadata_does_not_reject_heartbeat(value):
+    request = DeviceUpdateRequest.model_validate({
+        "id": "dev_1", "syncPhoneNumbers": True,
+        "simCards": [{"slotIndex": 0, "simNumber": 1, "phoneNumber": value}],
+    })
+    assert request.sim_cards[0].phone_number is None

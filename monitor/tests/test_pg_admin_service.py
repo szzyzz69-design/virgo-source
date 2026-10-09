@@ -33,6 +33,9 @@ class RecordingCursor:
     def fetchall(self):
         return self._database.rows
 
+    def fetchone(self):
+        return self._database.rows[0] if self._database.rows else (1,)
+
 
 class RecordingConnection:
     def __init__(self, database):
@@ -382,12 +385,14 @@ def test_create_account_hashes_password():
     assert params[2].startswith("pbkdf2_sha256$")
     assert params[2] != "secret"
     assert params[3:] == ("CN", "sim_1", "ACTIVE")
-    assert database.statements[1] == (
+    assert "SELECT 1 FROM sim_cards" in database.statements[1]
+    assert database.params[1] == ("sim_1",)
+    assert database.statements[2] == (
         "INSERT INTO account_sim_cards (account_id, sim_card_id) "
         "VALUES (%s, %s)"
     )
-    assert database.params[1] == ("acc_1", "sim_1")
-    assert database.params[2] == ("acc_1", "sim_2")
+    assert database.params[2] == ("acc_1", "sim_1")
+    assert database.params[4] == ("acc_1", "sim_2")
 
 
 def test_update_account_without_password_does_not_touch_password_hash():
@@ -411,8 +416,8 @@ def test_update_account_without_password_does_not_touch_password_hash():
     assert database.params[0] == ("alice", "CN", "sim_2", "DISABLED", "acc_1")
     assert database.statements[1] == "DELETE FROM account_sim_cards WHERE account_id = %s"
     assert database.params[1] == ("acc_1",)
-    assert database.params[2] == ("acc_1", "sim_2")
-    assert database.params[3] == ("acc_1", "sim_3")
+    assert database.params[3] == ("acc_1", "sim_2")
+    assert database.params[5] == ("acc_1", "sim_3")
 
 
 def test_update_account_with_password_updates_password_hash():
@@ -439,7 +444,7 @@ def test_update_account_with_password_updates_password_hash():
     assert params[2:] == ("CN", "sim_1", "ACTIVE", "acc_1")
     assert database.statements[1] == "DELETE FROM account_sim_cards WHERE account_id = %s"
     assert database.params[1] == ("acc_1",)
-    assert database.params[2] == ("acc_1", "sim_1")
+    assert database.params[3] == ("acc_1", "sim_1")
 
 
 def test_update_account_accepts_comma_separated_sim_ids_for_compatibility():
@@ -458,8 +463,8 @@ def test_update_account_accepts_comma_separated_sim_ids_for_compatibility():
     )
 
     assert database.params[0] == ("alice", "CN", "sim_1", "ACTIVE", "acc_1")
-    assert database.params[2] == ("acc_1", "sim_1")
-    assert database.params[3] == ("acc_1", "sim_2")
+    assert database.params[3] == ("acc_1", "sim_1")
+    assert database.params[5] == ("acc_1", "sim_2")
 
 
 def test_delete_account_removes_by_id():
@@ -504,6 +509,7 @@ def test_list_sim_card_options_returns_phone_labels_source_data():
     assert database.statements[0] == (
         "SELECT id, phone_number, device_id, sim_number, enabled, status, unregistered_at "
         "FROM sim_cards "
+        "WHERE enabled = TRUE AND status = 'active' AND unregistered_at IS NULL "
         "ORDER BY phone_number ASC NULLS LAST, device_id ASC, sim_number ASC"
     )
 
@@ -516,15 +522,12 @@ def test_update_sim_card_changes_only_allowed_fields_and_refreshes_updated_at():
         "sim_1",
         SimCardUpdate(
             sim_type="ESIM",
-            subscription_id=42,
             phone_number="+8613800000000",
             carrier_name="Carrier",
-            iccid_hash="hash",
             esim_profile_name="Work",
-            esim_group_id="group",
             enabled=False,
-            status="disabled",
             areas="CN",
+            display_updated_at=123000,
         ),
     )
 
@@ -542,15 +545,15 @@ def test_update_sim_card_changes_only_allowed_fields_and_refreshes_updated_at():
     assert "updated_at = %s" in changed_columns
     assert database.params[0] == (
         "ESIM",
-        42,
         "+8613800000000",
         "Carrier",
-        "hash",
         "Work",
-        "group",
         False,
         "disabled",
         "CN",
+        123000,
         345678,
         "sim_1",
     )
+    assert database.statements[1] == "DELETE FROM account_sim_cards WHERE sim_card_id = %s"
+    assert database.statements[2] == "UPDATE accounts SET use_sims_id = NULL WHERE use_sims_id = %s"

@@ -5,13 +5,16 @@ import logging
 import time
 from collections import defaultdict, deque
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Cookie, Depends, Header, Query, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from starlette.background import BackgroundTask
 
 from app.config import Settings
 from app.errors import ApiError
 from app.security import secure_equals
+from app.services.object_storage import ObjectStorageUnavailable
 from app.services.supervisor_service import (
     SupervisorNotFound,
     SupervisorScopeError,
@@ -216,6 +219,37 @@ def create_supervisor_router(
             raise ApiError(403, "FORBIDDEN", str(error)) from error
         except SupervisorNotFound as error:
             raise map_not_found(error) from error
+
+    @router.get("/conversations/{conversation_id}/attachments/{attachment_id}")
+    def attachment(
+        conversation_id: str,
+        attachment_id: str,
+        account_id: str,
+        _: str = Depends(auth),
+    ):
+        try:
+            item = service.get_attachment(conversation_id, account_id, attachment_id)
+        except SupervisorScopeError as error:
+            raise ApiError(403, "FORBIDDEN", str(error)) from error
+        except SupervisorNotFound as error:
+            raise map_not_found(error) from error
+        except ObjectStorageUnavailable as error:
+            raise ApiError(503, "ATTACHMENT_UNAVAILABLE", "Attachment storage is unavailable") from error
+        inline_types = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+        inline = item["contentType"] in inline_types
+        disposition = "inline" if inline else "attachment"
+        filename = quote(item["name"] or "mms-attachment", safe="")
+        stream = item["stream"]
+        return StreamingResponse(
+            stream.iter_chunks(chunk_size=65536),
+            media_type=item["contentType"] if inline else "application/octet-stream",
+            headers={
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+                "Content-Disposition": f"{disposition}; filename*=UTF-8''{filename}",
+            },
+            background=BackgroundTask(stream.close),
+        )
 
     return router
 

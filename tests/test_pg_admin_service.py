@@ -85,7 +85,7 @@ def test_list_rows_rejects_unknown_table_name():
         raise AssertionError("unknown table name was accepted")
 
 
-def test_regions_are_available_as_admin_table_without_editable_columns():
+def test_regions_use_name_as_id_in_admin_table():
     assert TABLES["regions"].columns == ("id", "created_at", "updated_at")
 
     columns = _table_columns("regions")

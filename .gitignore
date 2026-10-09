@@ -15,6 +15,7 @@ htmlcov/
 dist/
 build/
 .worktrees/
+node_modules/
 
 # Local data and credentials
 *.dump

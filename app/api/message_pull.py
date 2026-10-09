@@ -23,6 +23,7 @@ class MessagePullingService(Protocol):
 def create_message_pull_router(
     auth_service: PullAuthenticationService,
     pull_service: MessagePullingService,
+    delivery_service=None,
 ) -> APIRouter:
     def authenticate_device(
         authorization: str | None = Header(default=None),
@@ -44,12 +45,15 @@ def create_message_pull_router(
 
     router = APIRouter(prefix="/mobile/v1", tags=["mobile-message"])
 
-    @router.get("/message", response_model=list[MessagePullItem])
+    @router.get("/message", response_model=None)
     def pull_messages(
         device: AuthenticatedDevice = Depends(authenticate_device),
         order: Literal["fifo", "lifo"] = Query(default="fifo"),
-    ) -> list[MessagePullItem]:
+        protocol: int = Query(default=1, ge=1, le=2),
+    ):
         try:
+            if protocol == 2:
+                return delivery_service.pull(device.id, order)
             return pull_service.pull(device.id, order)
         except PullDeviceUnavailable as error:
             raise ApiError(403, "FORBIDDEN", "Device is disabled") from error

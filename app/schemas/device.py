@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 
 NonEmptyName = Annotated[
@@ -22,6 +22,12 @@ class SimCardRequest(BaseModel):
     phone_number: str | None = Field(default=None, alias="phoneNumber")
     carrier_name: str | None = Field(default=None, alias="carrierName")
     iccid: str | None = None
+
+    @field_validator("phone_number", mode="before")
+    @classmethod
+    def ignore_unavailable_phone_number(cls, value):
+        # Telephony metadata must not reject an otherwise valid heartbeat.
+        return value if isinstance(value, str) else None
 
 
 class DeviceRegisterRequest(BaseModel):
@@ -56,6 +62,7 @@ class DeviceUpdateRequest(BaseModel):
     id: DeviceId
     push_token: str | None = Field(default=None, alias="pushToken")
     sim_cards: list[SimCardRequest] | None = Field(default=None, alias="simCards")
+    sync_phone_numbers: bool = Field(default=False, alias="syncPhoneNumbers", strict=True)
 
     @model_validator(mode="after")
     def reject_duplicate_sim_identity(self) -> "DeviceUpdateRequest":
