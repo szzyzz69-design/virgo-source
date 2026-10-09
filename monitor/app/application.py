@@ -105,8 +105,10 @@ def create_app(
         RegistryAgentEventPublisher(agent_registry),
     )
     mms_service = mms_webhook_service
+    mms_storage = None
     if mms_service is None:
         import boto3
+        from botocore.config import Config
 
         s3_client = boto3.client(
             "s3",
@@ -114,6 +116,13 @@ def create_app(
             region_name=settings.s3_region,
             aws_access_key_id=settings.s3_access_key_id or None,
             aws_secret_access_key=settings.s3_secret_access_key or None,
+            config=Config(
+                signature_version="s3v4",
+                s3={"addressing_style": settings.s3_addressing_style},
+                connect_timeout=5,
+                read_timeout=30,
+                retries={"mode": "standard", "max_attempts": 2},
+            ),
         )
         mms_storage = S3ObjectStorage(
             client=s3_client,
@@ -165,7 +174,7 @@ def create_app(
     app.include_router(
         create_supervisor_router(
             settings,
-            SupervisorService(database),
+            SupervisorService(database, attachment_storage=mms_storage),
         )
     )
     mount_supervisor_ui(app)

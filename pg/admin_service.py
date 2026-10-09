@@ -60,6 +60,24 @@ class RegionCreate:
 
 
 @dataclass(frozen=True, slots=True)
+class RegionUpdate:
+    name: str
+
+
+# These are live references. SIM history keeps the name recorded at the time.
+REGION_AREA_TABLES = ("accounts", "sim_cards", "contacts", "conversations", "products")
+
+
+def _region_name(value: str) -> str:
+    name = value.strip()
+    if not name:
+        raise ValueError("Region name is required")
+    if len(name) > 100:
+        raise ValueError("Region name must be 100 characters or fewer")
+    return name
+
+
+@dataclass(frozen=True, slots=True)
 class ContactCreate:
     id: str
     display_name: str | None = None
@@ -261,8 +279,44 @@ class PgAdminService:
             INSERT INTO regions (id, created_at, updated_at)
             VALUES (%s, %s, %s)
             """,
-            (data.id.strip(), now, now),
+            (_region_name(data.id), now, now),
         )
+
+    def update_region(self, region_id: str, data: RegionUpdate) -> None:
+        name = _region_name(data.name)
+        with self._database.transaction() as connection:
+            # Serialize region changes, including creates/deletes, so two renames
+            # cannot claim the same name or partially update the references.
+            connection.execute("LOCK TABLE regions IN SHARE ROW EXCLUSIVE MODE")
+            existing = connection.execute(
+                "SELECT id FROM regions WHERE id = %s", (region_id,)
+            ).fetchone()
+            if existing is None:
+                raise ValueError("Region not found")
+            if name == region_id:
+                return
+            if connection.execute(
+                "SELECT 1 FROM regions WHERE BTRIM(id) = %s AND id <> %s LIMIT 1",
+                (name, region_id),
+            ).fetchone() is not None:
+                raise ValueError("Region name already exists")
+            # Legacy area values may exist without a regions row. Do not merge
+            # their contacts and account scopes by reusing their name.
+            for table in REGION_AREA_TABLES:
+                if connection.execute(
+                    f"SELECT 1 FROM {table} WHERE BTRIM(areas) = %s LIMIT 1",
+                    (name,),
+                ).fetchone() is not None:
+                    raise ValueError("Region name already exists")
+            connection.execute(
+                "UPDATE regions SET id = %s, updated_at = %s WHERE id = %s",
+                (name, self._now_ms(), region_id),
+            )
+            for table in REGION_AREA_TABLES:
+                connection.execute(
+                    f"UPDATE {table} SET areas = %s WHERE BTRIM(areas) = %s",
+                    (name, region_id.strip()),
+                )
 
     def delete_region(self, region_id: str) -> None:
         self._execute("DELETE FROM regions WHERE id = %s", (region_id,))

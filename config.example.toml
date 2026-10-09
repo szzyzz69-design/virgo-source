@@ -9,3 +9,7 @@ s3_bucket = "replace-with-mms-attachment-bucket"
 s3_access_key_id = "replace-with-s3-access-key-id"
 s3_secret_access_key = "replace-with-s3-secret-access-key"
 s3_public_base_url = "https://cdn.example.com/mms"
+# Optional: use a phone-reachable endpoint for private attachment signatures.
+# Leave empty when upload and download use the same endpoint.
+s3_download_endpoint_url = ""
+s3_addressing_style = "auto" # Use "path" for local MinIO.

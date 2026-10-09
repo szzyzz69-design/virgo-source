@@ -103,7 +103,7 @@ def test_register_persists_device_and_sim_without_plaintext(clean_database):
     assert sim is not None
     assert sim["slot_index"] == 0
     assert sim["sim_number"] == 1
-    assert sim["phone_number"] == "***1234"
+    assert sim["phone_number"] is None  # A masked suffix is not a usable SIM number.
     assert sim["carrier_name"] == "carrier"
     assert sim["iccid_hash"] == hashlib.sha256(b"raw-iccid").hexdigest()
     assert sim["status"] == "active"

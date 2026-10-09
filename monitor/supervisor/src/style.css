@@ -61,7 +61,12 @@ header button { margin-left: auto; }
 .daymsg.out { margin-left: auto; background: #e7f1ff; }
 .daymsg b, .daymsg small, .daymsg em { display: block; font-size: 12px; }
 .daymsg small { margin-top: 7px; color: #64748b; }
+.message-meta > span { display: block; margin-top: 3px; }
+.message-time time { font-variant-numeric: tabular-nums; }
 .daymsg em { color: #b91c1c; margin-top: 4px; }
+.message-attachment { display: block; margin-top: 10px; color: #1769d2; overflow-wrap: anywhere; }
+.message-image { display: block; max-width: 100%; max-height: 360px; width: auto; height: auto; border-radius: 8px; object-fit: contain; }
+.attachment-fallback { display: block; font-size: 12px; margin-top: 5px; }
 .readonly-badge { color: #1769d2; background: #eaf3ff; border-radius: 20px; padding: 5px 10px; font-size: 12px; white-space: nowrap; }
 .new-message { position: absolute; right: 22px; bottom: 22px; z-index: 8; border: 0; border-radius: 20px; padding: 8px 14px; background: #1769d2; color: #fff; box-shadow: 0 4px 15px #0f172a33; }
 .hidden { display: none !important; }

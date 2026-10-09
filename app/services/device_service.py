@@ -12,6 +12,7 @@ from app.schemas.device import (
     DeviceUpdateResponse,
 )
 from app.security import hash_password, hash_sha256
+from app.schemas.message import normalize_phone
 from app.services.device_auth_service import DeviceDisabled, InvalidDeviceToken
 
 
@@ -27,6 +28,51 @@ SIM_STATE_CONSTRAINTS = {
     "uq_sim_device_slot",
     "uq_sim_device_subscription",
 }
+
+
+def _phone_key(value: str | None) -> str | None:
+    """Compare complete SIM numbers without guessing non-NANP national codes."""
+    if not isinstance(value, str):
+        return None
+    try:
+        normalized = normalize_phone(value)
+    except ValueError:
+        return None
+    digits = normalized.removeprefix("+")
+    if not digits.isascii() or not digits.isdigit():
+        return None
+    if not normalized.startswith("+") and len(digits) == 10:
+        digits = "1" + digits
+    if digits.startswith("1"):
+        national = digits[1:]
+        if (
+            len(digits) != 11
+            or national[0] not in "23456789"
+            or national[3] not in "23456789"
+            or len(set(national)) == 1
+        ):
+            return None
+    elif (
+        not normalized.startswith("+")
+        or not 7 <= len(digits) <= 15
+        or digits[0] == "0"
+        or len(set(digits)) == 1
+    ):
+        return None
+    return "+" + digits
+
+
+def _reported_phone_number(value: str | None) -> str | None:
+    return value.strip() if _phone_key(value) is not None else None
+
+
+def _known_descriptor(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip()
+    if value.casefold() in {"", "unknown", "null", "none", "n/a", "未知"}:
+        return None
+    return value
 
 
 class DeviceOwnershipMismatch(Exception):
@@ -115,9 +161,11 @@ class DeviceService:
                     authenticated_device_id,
                     sim.slot_index,
                     sim.sim_number,
-                    sim.phone_number,
-                    sim.carrier_name,
-                    hash_sha256(sim.iccid) if sim.iccid else None,
+                    _reported_phone_number(sim.phone_number),
+                    _known_descriptor(sim.carrier_name) if request.sync_phone_numbers else sim.carrier_name,
+                    hash_sha256(iccid) if (iccid := (
+                        _known_descriptor(sim.iccid) if request.sync_phone_numbers else sim.iccid
+                    )) else None,
                     now,
                     now,
                 )
@@ -159,13 +207,20 @@ class DeviceService:
             if sim_rows is None:
                 return
 
+            existing_phones = {}
+            if request.sync_phone_numbers:
+                existing_phones = dict(connection.execute(
+                    "SELECT slot_index, phone_number FROM sim_cards WHERE device_id = %s FOR UPDATE",
+                    (authenticated_device_id,),
+                ).fetchall())
+
             connection.execute(
                 """
                 UPDATE sim_cards
                 SET status = 'inactive', updated_at = %s
-                WHERE device_id = %s
+                WHERE device_id = %s AND NOT %s
                 """,
-                (now, authenticated_device_id),
+                (now, authenticated_device_id, request.sync_phone_numbers),
             )
             for sim_row in sim_rows:
                 connection.execute(
@@ -176,13 +231,31 @@ class DeviceService:
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, 'active', %s, %s)
                     ON CONFLICT (device_id, slot_index) DO UPDATE SET
                         sim_number = EXCLUDED.sim_number,
-                        phone_number = EXCLUDED.phone_number,
-                        carrier_name = EXCLUDED.carrier_name,
-                        iccid_hash = EXCLUDED.iccid_hash,
-                        status = 'active',
+                        phone_number = CASE
+                            WHEN %s THEN EXCLUDED.phone_number
+                            WHEN EXCLUDED.phone_number IS NOT NULL
+                                AND NULLIF(BTRIM(sim_cards.phone_number), '') IS NULL
+                                THEN EXCLUDED.phone_number
+                            ELSE sim_cards.phone_number
+                        END,
+                        carrier_name = CASE WHEN %s
+                            THEN COALESCE(EXCLUDED.carrier_name, sim_cards.carrier_name)
+                            ELSE EXCLUDED.carrier_name END,
+                        iccid_hash = CASE WHEN %s
+                            THEN COALESCE(EXCLUDED.iccid_hash, sim_cards.iccid_hash)
+                            ELSE EXCLUDED.iccid_hash END,
+                        status = CASE WHEN %s
+                            THEN sim_cards.status ELSE 'active' END,
                         updated_at = EXCLUDED.updated_at
                     """,
-                    sim_row,
+                    (*sim_row,
+                     request.sync_phone_numbers
+                     and sim_row[4] is not None
+                     and sim_row[2] in existing_phones
+                     and _phone_key(existing_phones[sim_row[2]]) != _phone_key(sim_row[4]),
+                     request.sync_phone_numbers,
+                     request.sync_phone_numbers,
+                     request.sync_phone_numbers),
                 )
 
     def _persist(
@@ -199,7 +272,7 @@ class DeviceService:
                 identity.device_id,
                 sim.slot_index,
                 sim.sim_number,
-                sim.phone_number,
+                _reported_phone_number(sim.phone_number),
                 sim.carrier_name,
                 hash_sha256(sim.iccid) if sim.iccid else None,
                 now,

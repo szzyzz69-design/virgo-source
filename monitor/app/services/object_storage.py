@@ -1,6 +1,12 @@
 from dataclasses import dataclass
 import re
 
+from botocore.exceptions import BotoCoreError, ClientError
+
+
+class ObjectStorageUnavailable(Exception):
+    pass
+
 
 @dataclass(frozen=True, slots=True)
 class StoredObject:
@@ -46,6 +52,12 @@ class S3ObjectStorage:
         self._client = client
         self._bucket = bucket
         self._public_base_url = public_base_url.rstrip("/")
+
+    def download_object(self, *, bucket: str, key: str):
+        try:
+            return self._client.get_object(Bucket=bucket, Key=key)["Body"]
+        except (BotoCoreError, ClientError) as error:
+            raise ObjectStorageUnavailable from error
 
     def upload_bytes(self, *, key: str, body: bytes, content_type: str) -> StoredObject:
         response = self._client.put_object(

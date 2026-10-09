@@ -52,6 +52,9 @@ class MessagePullService:
                 WHERE m.device_id = %s
                   AND m.direction = 'OUTBOUND'
                   AND m.state = 'Pending'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM message_deliveries d WHERE d.message_id = m.id
+                  )
                   AND (m.valid_until IS NULL OR m.valid_until > %s)
                   AND (m.schedule_at IS NULL OR m.schedule_at <= %s)
                   AND s.enabled = TRUE

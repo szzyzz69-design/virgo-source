@@ -171,7 +171,7 @@ def test_update_nonempty_snapshot_upserts_and_preserves_admin_fields(clean_datab
     assert sims[0]["last_used_at"] == before[0]["last_used_at"]
     assert sims[0]["enabled"] is False
     assert sims[0]["status"] == "active"
-    assert sims[0]["phone_number"] == "new-0"
+    assert sims[0]["phone_number"] == before[0]["phone_number"]
     assert sims[0]["carrier_name"] == "new-carrier"
     assert sims[0]["iccid_hash"] == hashlib.sha256(b"new-iccid").hexdigest()
     assert sims[1]["status"] == "inactive"
@@ -179,7 +179,7 @@ def test_update_nonempty_snapshot_upserts_and_preserves_admin_fields(clean_datab
     assert sims[2]["enabled"] is True
 
 
-def test_update_null_sim_descriptors_clear_previous_values(clean_database):
+def test_update_null_sim_descriptors_preserve_phone_and_clear_other_descriptors(clean_database):
     device_id = seed_device(clean_database)
     seed_two_sims(clean_database, device_id)
 
@@ -202,9 +202,63 @@ def test_update_null_sim_descriptors_clear_previous_values(clean_database):
     )
 
     sim = read_sims(clean_database.dsn, device_id)[0]
-    assert sim["phone_number"] is None
+    assert sim["phone_number"] == "old-0"
     assert sim["carrier_name"] is None
     assert sim["iccid_hash"] is None
+
+
+@pytest.mark.parametrize("reported_number", [None, "", "+12025550104", "12025550105"])
+def test_device_report_preserves_configured_phone_format_and_assignment(clean_database, reported_number):
+    device_id = seed_device(clean_database)
+    seed_two_sims(clean_database, device_id)
+    original_number = "+1 (202) 555-0104"
+    with psycopg.connect(clean_database.dsn) as connection:
+        connection.execute(
+            "UPDATE sim_cards SET phone_number=%s, areas='Halifax', esim_profile_name='Original station' "
+            "WHERE device_id=%s AND slot_index=0",
+            (original_number, device_id),
+        )
+    before = read_sims(clean_database.dsn, device_id)[0]
+
+    DeviceService(Database(clean_database.dsn)).update(
+        device_id,
+        DeviceUpdateRequest.model_validate({
+            "id": device_id,
+            "simCards": [{"slotIndex": 0, "simNumber": 1, "phoneNumber": reported_number}],
+        }),
+    )
+
+    sim = read_sims(clean_database.dsn, device_id)[0]
+    assert sim["id"] == before["id"]
+    assert sim["phone_number"] == original_number
+    with psycopg.connect(clean_database.dsn) as connection:
+        assert connection.execute(
+            "SELECT areas, esim_profile_name FROM sim_cards WHERE id=%s", (sim["id"],),
+        ).fetchone() == ("Halifax", "Original station")
+
+
+@pytest.mark.parametrize("existing_number", [None, "", "   "])
+def test_device_report_fills_only_blank_phone_numbers(clean_database, existing_number):
+    device_id = seed_device(clean_database)
+    seed_two_sims(clean_database, device_id)
+    with psycopg.connect(clean_database.dsn) as connection:
+        connection.execute(
+            "UPDATE sim_cards SET phone_number=%s WHERE device_id=%s AND slot_index=0",
+            (existing_number, device_id),
+        )
+
+    DeviceService(Database(clean_database.dsn)).update(
+        device_id,
+        DeviceUpdateRequest.model_validate({
+            "id": device_id,
+            "simCards": [{"slotIndex": 0, "simNumber": 1, "phoneNumber": "+12025550104"},
+                         {"slotIndex": 2, "simNumber": 3, "phoneNumber": "12025550105"}],
+        }),
+    )
+
+    sims = read_sims(clean_database.dsn, device_id)
+    assert sims[0]["phone_number"] == "+12025550104"
+    assert sims[2]["phone_number"] == "12025550105"
 
 
 def test_update_rejects_mismatched_id_without_partial_writes(clean_database):

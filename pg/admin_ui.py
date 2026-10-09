@@ -17,6 +17,7 @@ from pg.admin_service import (
     ProductCreate,
     ProductUpdate,
     RegionCreate,
+    RegionUpdate,
     SimCardUpdate,
 )
 
@@ -139,6 +140,12 @@ def _build_admin_page(ui: Any, service: PgAdminService, sms_checks=None) -> None
         ui.space()
         ui.label("Virgo").classes("text-sm opacity-70")
 
+    table_refreshers = []
+
+    def refresh_tables() -> None:
+        for refresh_table in table_refreshers:
+            refresh_table()
+
     with ui.column().classes("w-full p-4 gap-4"):
         with ui.tabs().classes("w-full") as tabs:
             tab_refs = {
@@ -151,14 +158,18 @@ def _build_admin_page(ui: Any, service: PgAdminService, sms_checks=None) -> None
         with ui.tab_panels(tabs, value=tab_refs["devices"]).classes("w-full"):
             for table_name in TABLE_LABELS:
                 with ui.tab_panel(tab_refs[table_name]).classes("w-full"):
-                    _build_table_panel(ui, service, table_name)
+                    table_refreshers.append(
+                        _build_table_panel(ui, service, table_name, refresh_tables)
+                    )
             if sms_checks:
                 with ui.tab_panel(check_tab).classes('w-full'):
                     from pg.sms_check_ui import build_sms_check_panel
                     build_sms_check_panel(ui, sms_checks)
 
 
-def _build_table_panel(ui: Any, service: PgAdminService, table_name: str) -> None:
+def _build_table_panel(
+    ui: Any, service: PgAdminService, table_name: str, refresh_tables: Any = None
+) -> Any:
     contact_phone_search = None
     if table_name == "contacts":
         with ui.row().classes("w-full items-center gap-2"):
@@ -389,6 +400,16 @@ def _build_table_panel(ui: Any, service: PgAdminService, table_name: str) -> Non
         elif table_name == "regions":
             ui.button(icon="add", on_click=lambda: _open_region_dialog(ui, service, refresh)).tooltip("新增地区")
             ui.button(
+                icon="edit",
+                on_click=lambda: _with_selected(
+                    ui,
+                    table,
+                    lambda row: _open_region_dialog(
+                        ui, service, refresh_tables or refresh, row
+                    ),
+                ),
+            ).tooltip("修改地区名称")
+            ui.button(
                 icon="delete",
                 color="negative",
                 on_click=lambda: _with_selected(
@@ -403,6 +424,8 @@ def _build_table_panel(ui: Any, service: PgAdminService, table_name: str) -> Non
                     ),
                 ),
             ).tooltip("删除地区")
+
+    return refresh
 
 
 def _table_columns(table_name: str) -> list[dict[str, str]]:
@@ -567,17 +590,34 @@ def _open_region_dialog(
     ui: Any,
     service: PgAdminService,
     refresh: Any,
+    row: dict[str, Any] | None = None,
 ) -> None:
+    editing = row is not None
     with ui.dialog() as dialog, ui.card().classes("w-full max-w-xl gap-3"):
-        ui.label("新增地区").classes("text-base font-medium")
-        region_id = ui.input("地区", value="").props("outlined dense").classes("w-full")
+        ui.label("修改地区名称" if editing else "新增地区").classes("text-base font-medium")
+        region_id = ui.input("地区", value=(row or {}).get("id", "")).props("outlined dense maxlength=100").classes("w-full")
+        if editing:
+            ui.label("改名后，关联账号、SIM 卡、联系人和会话的地区名称会同步更新。").classes("text-sm text-gray-600")
 
         def save() -> None:
             try:
-                service.create_region(RegionCreate(id=region_id.value))
+                if editing:
+                    service.update_region(row["id"], RegionUpdate(name=region_id.value))
+                else:
+                    service.create_region(RegionCreate(id=region_id.value))
                 dialog.close()
                 refresh()
                 ui.notify("已保存", type="positive")
+            except ValueError as error:
+                ui.notify(
+                    {
+                        "Region name is required": "地区名称不能为空",
+                        "Region name must be 100 characters or fewer": "地区名称不能超过 100 个字符",
+                        "Region name already exists": "该地区名称已存在或已被使用，请换一个名称",
+                        "Region not found": "该地区已被修改或删除，请刷新后重试",
+                    }.get(str(error), "保存失败，请检查地区名称"),
+                    type="negative",
+                )
             except Exception:
                 ui.notify("保存失败，请检查地区是否为空或重复", type="negative")
 

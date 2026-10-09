@@ -11,6 +11,7 @@ from app.services.inbound_message_service import (
     InboundValidation,
 )
 from app.services.mms_signature import InvalidMmsSignature, verify_mms_signature
+from app.services.object_storage import ObjectStorageUnavailable
 from app.services.mms_webhook_service import (
     MmsPayloadTooLarge,
     MmsUnsupportedMediaType,
@@ -89,6 +90,8 @@ def create_mms_webhook_router(
                 "UNSUPPORTED_MEDIA_TYPE",
                 "MMS attachment content type is unsupported",
             ) from error
+        except ObjectStorageUnavailable as error:
+            raise ApiError(503, "STORAGE_UNAVAILABLE", "MMS storage is temporarily unavailable") from error
         return {
             "ok": True,
             "messageId": result.message_id,

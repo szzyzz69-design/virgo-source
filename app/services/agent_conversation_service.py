@@ -26,9 +26,11 @@ class AgentConversationService:
         self,
         database: Database,
         message_service: MessageCommandService,
+        attachment_storage=None,
     ):
         self._database = database
         self._message_service = message_service
+        self._attachment_storage = attachment_storage
 
     def list_conversations(self, agent: AuthenticatedAgent) -> list[AgentConversationItem]:
         with self._database.transaction() as connection:
@@ -123,7 +125,7 @@ class AgentConversationService:
             if message_ids:
                 attachment_rows = connection.execute(
                     """
-                    SELECT message_id, id, part_id, content_type, name, size, url
+                    SELECT message_id, id, part_id, content_type, name, size, url, s3_bucket, s3_key
                     FROM message_attachments
                     WHERE message_id = ANY(%s::varchar[])
                     ORDER BY message_id, part_id
@@ -138,7 +140,12 @@ class AgentConversationService:
                             contentType=attachment[3],
                             name=attachment[4],
                             size=attachment[5],
-                            url=attachment[6],
+                            url=(
+                                attachment[6] or (
+                                    self._attachment_storage.download_url(bucket=attachment[7], key=attachment[8])
+                                    if self._attachment_storage is not None else None
+                                )
+                            ),
                         )
                     )
         return [

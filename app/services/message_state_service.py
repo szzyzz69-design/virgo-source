@@ -95,6 +95,11 @@ class MessageStateService:
                 row = row_by_id[message_id]
                 if row[3] != device_id or row[1] != "OUTBOUND":
                     raise MessageStatusForbidden(index, message_id, "message is not owned by device")
+                delivery = connection.execute(
+                    "SELECT accepted_at FROM message_deliveries WHERE message_id=%s", (message_id,),
+                ).fetchone()
+                if delivery is not None and delivery[0] is None:
+                    raise MessageStateConflict(index, message_id, "delivery has not been accepted")
                 old_state = Status(row[2])
                 if not can_transition(old_state, request.state):
                     raise MessageStateConflict(index, message_id, "message state regressed")

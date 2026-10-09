@@ -5,10 +5,9 @@ import psycopg
 import pytest
 
 
-TEST_DATABASE_URL = os.getenv(
-    "TEST_DATABASE_URL",
-    "postgresql://admin:admin@127.0.0.1:5433/virgo_pg",
-)
+# Database tests must explicitly select an isolated database. Never fall back
+# to the running service's database when the test environment is absent.
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 
 
 @dataclass(slots=True)
@@ -38,6 +37,8 @@ class TestDatabaseContext:
 
 @pytest.fixture
 def clean_database():
+    if not TEST_DATABASE_URL:
+        pytest.skip("Set TEST_DATABASE_URL to an isolated test database")
     context = TestDatabaseContext(TEST_DATABASE_URL)
     yield context
     if (

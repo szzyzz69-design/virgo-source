@@ -1,5 +1,38 @@
 from app.services.object_storage import S3ObjectStorage, build_mms_object_key
 
+from urllib.parse import parse_qs, urlsplit
+
+import pytest
+from botocore.exceptions import EndpointConnectionError
+
+from app.config import Settings
+from app.services.object_storage import create_s3_storage, ObjectStorageUnavailable
+
+
+def test_private_links_use_external_endpoint_and_signature_v4():
+    storage = create_s3_storage(Settings(
+        database_url="postgresql://unused", private_registration_token="reg",
+        s3_endpoint_url="http://minio:9000",
+        s3_download_endpoint_url="http://192.168.50.24:9000",
+        s3_bucket="virgo-mms", s3_access_key_id="access", s3_secret_access_key="secret",
+        s3_addressing_style="path",
+    ))
+    url = urlsplit(storage.download_url(bucket="virgo-mms", key="mms/photo.png"))
+    assert url.netloc == "192.168.50.24:9000"
+    assert url.path == "/virgo-mms/mms/photo.png"
+    assert parse_qs(url.query)["X-Amz-Algorithm"] == ["AWS4-HMAC-SHA256"]
+    assert parse_qs(url.query)["X-Amz-Expires"] == ["900"]
+
+
+def test_unavailable_upload_is_reported_as_storage_unavailable():
+    class OfflineClient:
+        def put_object(self, **kwargs):
+            raise EndpointConnectionError(endpoint_url="http://unavailable")
+
+    storage = S3ObjectStorage(client=OfflineClient(), bucket="virgo-mms")
+    with pytest.raises(ObjectStorageUnavailable):
+        storage.upload_bytes(key="mms/image.png", body=b"abc", content_type="image/png")
+
 
 class FakeS3Client:
     def __init__(self, response=None):

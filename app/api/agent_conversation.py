@@ -14,6 +14,7 @@ from app.schemas.agent_conversation import (
 )
 from app.schemas.message import MessageCreateResponse, PHONE_SEPARATORS
 from app.services.agent_auth_service import AuthenticatedAgent
+from app.services.object_storage import ObjectStorageUnavailable
 from app.services.agent_conversation_service import (
     ConversationForbidden,
     ConversationNotFound,
@@ -135,6 +136,8 @@ def create_agent_conversation_router(
             return conversation_service.list_messages(conversation_id, agent)
         except (ConversationForbidden, ConversationNotFound) as error:
             raise map_conversation_error(error) from error
+        except ObjectStorageUnavailable as error:
+            raise ApiError(503, "STORAGE_UNAVAILABLE", "Attachment storage is temporarily unavailable") from error
 
     @router.patch("/conversations/{conversation_id}/read")
     def mark_read(

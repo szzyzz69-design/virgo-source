@@ -2,10 +2,12 @@ import base64
 import json
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from urllib.parse import quote
 
 from psycopg.rows import dict_row
 
 from app.database import Database
+from app.services.object_storage import ObjectStorageUnavailable
 
 
 class SupervisorNotFound(Exception):
@@ -17,8 +19,9 @@ class SupervisorScopeError(Exception):
 
 
 class SupervisorService:
-    def __init__(self, database: Database):
+    def __init__(self, database: Database, attachment_storage=None):
         self._database = database
+        self._attachment_storage = attachment_storage
 
     @staticmethod
     def day_bounds_ms(timezone: str, now: datetime | None = None) -> tuple[int, int]:
@@ -143,12 +146,12 @@ class SupervisorService:
         params.append(limit + 1)
         sql = f"""
         WITH latest AS (
-          SELECT DISTINCT ON (conversation_id) conversation_id,id,direction,state,created_at,text_content
+          SELECT DISTINCT ON (conversation_id) conversation_id,id,direction,state,created_at,text_content,message_type
           FROM messages ORDER BY conversation_id,created_at DESC,id DESC
         )
         SELECT c.id,c.contact_id,c.external_phone_number,ct.remark customer_remark,
           s.phone_number,NULLIF(BTRIM(s.areas),'') note,a.id account_id,a.username,
-          lm.id message_id,lm.created_at,lm.direction,lm.state,lm.text_content
+          lm.id message_id,lm.created_at,lm.direction,lm.state,lm.text_content,lm.message_type
         FROM conversations c
         JOIN contacts ct ON ct.id=c.contact_id
         JOIN account_sim_cards acs ON acs.sim_card_id=c.sim_card_id
@@ -201,6 +204,23 @@ class SupervisorService:
         more = len(rows) > limit
         rows = rows[:limit]
         rows.reverse()
+        attachments = {row["id"]: [] for row in rows}
+        if rows:
+            with self._database.transaction() as connection:
+                with connection.cursor(row_factory=dict_row) as cursor_handle:
+                    cursor_handle.execute(
+                        """SELECT id,message_id,part_id,content_type,name,size
+                        FROM message_attachments WHERE message_id=ANY(%s::varchar[])
+                        ORDER BY message_id,part_id,id""",
+                        ([row["id"] for row in rows],),
+                    )
+                    for attachment in cursor_handle.fetchall():
+                        attachments[attachment["message_id"]].append({
+                            "id": attachment["id"], "partId": attachment["part_id"],
+                            "contentType": attachment["content_type"], "name": attachment["name"],
+                            "size": attachment["size"],
+                            "url": self._attachment_url(conversation_id, account_id, attachment["id"]),
+                        })
         return {
             "items": [{
                 "id": row["id"], "direction": row["direction"],
@@ -209,23 +229,52 @@ class SupervisorService:
                 "receivedAt": row["received_at"], "sentAt": row["sent_at"],
                 "deliveredAt": row["delivered_at"],
                 "errorCode": row["error_code"], "errorMessage": row["error_message"],
+                "attachments": attachments[row["id"]],
             } for row in rows],
             "nextBefore": rows[0]["created_at"] if more and rows else None,
         }
+
+    @staticmethod
+    def _attachment_url(conversation_id: str, account_id: str, attachment_id: str) -> str:
+        return (
+            f"/supervisor/api/conversations/{quote(conversation_id, safe='')}"
+            f"/attachments/{quote(attachment_id, safe='')}?account_id={quote(account_id, safe='')}"
+        )
+
+    def get_attachment(self, conversation_id: str, account_id: str, attachment_id: str):
+        self._conversation_context(conversation_id, account_id)
+        with self._database.transaction() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor_handle:
+                cursor_handle.execute(
+                    """SELECT a.content_type,a.name,a.size,a.s3_bucket,a.s3_key
+                    FROM message_attachments a JOIN messages m ON m.id=a.message_id
+                    WHERE a.id=%s AND m.conversation_id=%s""",
+                    (attachment_id, conversation_id),
+                )
+                attachment = cursor_handle.fetchone()
+        if attachment is None:
+            raise SupervisorNotFound
+        if self._attachment_storage is None or not attachment["s3_bucket"] or not attachment["s3_key"]:
+            raise ObjectStorageUnavailable
+        stream = self._attachment_storage.download_object(
+            bucket=attachment["s3_bucket"], key=attachment["s3_key"],
+        )
+        return {"contentType": attachment["content_type"], "name": attachment["name"],
+                "size": attachment["size"], "stream": stream}
 
     def _conversation_context(self, conversation_id: str, account_id: str) -> dict:
         sql = """
         SELECT c.id,c.contact_id,c.external_phone_number,ct.remark customer_remark,
           s.phone_number,NULLIF(BTRIM(s.areas),'') note,a.id account_id,a.username,
           a.areas account_areas,lm.id message_id,lm.created_at,
-          lm.direction,lm.state,lm.text_content
+          lm.direction,lm.state,lm.text_content,lm.message_type
         FROM conversations c
         JOIN contacts ct ON ct.id=c.contact_id
         JOIN account_sim_cards acs ON acs.sim_card_id=c.sim_card_id
         JOIN accounts a ON a.id=acs.account_id AND a.status='ACTIVE'
         LEFT JOIN sim_cards s ON s.id=c.sim_card_id
         LEFT JOIN LATERAL (
-          SELECT id,direction,state,created_at,text_content FROM messages
+          SELECT id,direction,state,created_at,text_content,message_type FROM messages
           WHERE conversation_id=c.id ORDER BY created_at DESC,id DESC LIMIT 1
         ) lm ON TRUE
         WHERE c.id=%s AND a.id=%s
@@ -261,6 +310,7 @@ class SupervisorService:
                 "id": row["message_id"], "direction": direction,
                 "text": row.get("text_content"), "state": message_state,
                 "createdAt": row.get("created_at"),
+                "messageType": row.get("message_type"),
             }
         return {
             "id": row["id"], "contactId": row.get("contact_id"),

@@ -1,17 +1,14 @@
 import './style.css';
+import {renderAttachments} from './message-media.js';
+import {formatTimestamp, renderMessageTimes} from './message-time.js';
 
 const app = document.querySelector('#app');
 const esc = value => String(value ?? '').replace(
   /[&<>"']/g,
   character => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[character]),
 );
-const when = value => value
-  ? new Intl.DateTimeFormat('zh-CN', {dateStyle: 'short', timeStyle: 'short'}).format(new Date(value))
-  : '暂无消息';
+const when = value => formatTimestamp(value) || '暂无消息';
 const labels = {waiting: '待回复', replied: '已回复', failed: '回复发送失败'};
-const messageTimeText = message => message.direction === 'INBOUND'
-  ? `接收时间：${when(message.receivedAt || message.createdAt)}`
-  : `发送时间：${when(message.sentAt || message.createdAt)}`;
 
 let csrfToken = '';
 let areas = [];
@@ -171,7 +168,7 @@ function renderItems() {
       ? `${esc(conversation.customerRemark)} <small>（${esc(conversation.customerPhoneNumber)}）</small>`
       : esc(conversation.customerPhoneNumber);
     const preview = message
-      ? `${message.direction === 'INBOUND' ? '客户' : '客服'}：${esc(message.text || '[无文本内容]')}`
+      ? `${message.direction === 'INBOUND' ? '客户' : '客服'}：${message.messageType === 'MMS' ? '[彩信] ' : ''}${esc(message.text || (message.messageType === 'MMS' ? '' : '[无文本内容]'))}`
       : '暂无消息';
     const state = `<span class="badge ${conversation.replyStatus}">${labels[conversation.replyStatus]}</span>`;
     return `<article class="conversation" data-id="${esc(conversation.id)}" data-account="${esc(conversation.accountId)}"><div class="title"><strong>${title}</strong><time>${when(conversation.lastMessageAt)}</time></div><div class="conversation-preview"><span>${preview}</span>${state}</div><p>接收：${esc(conversation.servicePhoneNumber || '号码未填写')}${conversation.note ? ` · ${esc(conversation.note)}` : ''} · ${esc(conversation.accountUsername)}</p></article>`;
@@ -230,7 +227,14 @@ function renderMessages(initial = false) {
   if (!container) return;
   const previousHeight = container.scrollHeight;
   const previousTop = container.scrollTop;
-  container.innerHTML = detailMessages.map(message => `<div class="daymsg ${message.direction === 'INBOUND' ? 'in' : 'out'}"><b>${message.direction === 'INBOUND' ? '客户' : '客服'}</b><div>${esc(message.text || '[无文本内容]')}</div><small>${messageTimeText(message)}${message.direction === 'OUTBOUND' ? ` · 状态：${esc(message.state)}` : ''}${message.deliveredAt ? ` · 送达时间：${when(message.deliveredAt)}` : ''}</small>${message.errorMessage ? `<em>${esc(message.errorMessage)}</em>` : ''}</div>`).join('') || '<div class="empty">该会话暂无消息</div>';
+  container.innerHTML = detailMessages.map(message => `<div class="daymsg ${message.direction === 'INBOUND' ? 'in' : 'out'}"><b>${message.direction === 'INBOUND' ? '客户' : '客服'}</b>${message.text ? `<div>${esc(message.text)}</div>` : (message.attachments?.length ? '' : '<div>[无文本内容]</div>')}${renderAttachments(message.attachments)}<small class="message-meta">${renderMessageTimes(message)}${message.direction === 'OUTBOUND' ? `<span>状态：${esc(message.state)}</span>` : ''}</small>${message.errorMessage ? `<em>${esc(message.errorMessage)}</em>` : ''}</div>`).join('') || '<div class="empty">该会话暂无消息</div>';
+  container.querySelectorAll('.message-image').forEach(image => {
+    image.onload = () => { if (nearBottom) scrollToBottom(false); };
+    image.onerror = () => {
+      image.hidden = true;
+      image.closest('.message-attachment').querySelector('.attachment-fallback').textContent = '图片暂时无法加载，点击重试';
+    };
+  });
   container.onscroll = () => {
     nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
     if (nearBottom) {

@@ -1,5 +1,7 @@
 config.toml
 .env
+.env.mms
+config.toml.*
 .venv/
 .idea/
 .agents/
@@ -13,6 +15,7 @@ htmlcov/
 dist/
 build/
 .worktrees/
+node_modules/
 
 # Local data and credentials
 *.dump
